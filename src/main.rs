@@ -16,6 +16,7 @@ enum Action {
     /// Converts an aseprite file containing a single frame to a png file
     Convert(Convert),
     Assemble(Assemble),
+    Separate(Separate),
 }
 
 #[derive(Parser, Debug)]
@@ -34,6 +35,14 @@ struct Assemble {
     number_of_frames_from_each: Option<NonZeroU32>,
     #[arg(short, long)]
     columns: Option<NonZeroU32>,
+}
+
+#[derive(Parser, Debug)]
+struct Separate {
+    input_file: OsString,
+    output_directory: OsString,
+    #[clap(short, long, value_parser, num_args = 1.., value_delimiter = ',')]
+    tags: Vec<String>,
 }
 
 impl Convert {
@@ -129,12 +138,38 @@ impl Assemble {
     }
 }
 
+impl Separate {
+    fn separate(&self) -> Result<()> {
+        let input_path = Path::new(&self.input_file);
+        let input_file = asefile::AsepriteFile::read_file(input_path)
+            .with_context(|| format!("{} can't be loaded", input_path.display()))?;
+
+        let output_path = Path::new(&self.output_directory);
+
+        for tag in self.tags.iter() {
+            let image_tag = input_file.tag_by_name(tag).with_context(|| {
+                format!("{tag} doesn't exist in image {}", input_path.display())
+            })?;
+
+            let frame = input_file.frame(image_tag.from_frame());
+
+            let image_output_path = output_path.join(format!("{tag}.png"));
+            frame
+                .image()
+                .save(&image_output_path)
+                .with_context(|| format!("Cannot save image to {}", image_output_path.display()))?;
+        }
+        Ok(())
+    }
+}
+
 fn main() -> Result<()> {
     let cli = Args::parse();
 
     match cli.action {
         Action::Convert(convert) => convert.convert()?,
         Action::Assemble(assemble) => assemble.assemble()?,
+        Action::Separate(separate) => separate.separate()?,
     }
 
     Ok(())
